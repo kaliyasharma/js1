@@ -256,27 +256,52 @@
         }
 
         function mergeJsonFiles(fileList) {
-            const merged = { domains: {} };
+            const merged = {};
 
-            // Sort files: utpal files first, then others
+            // Sort files: utpal files first, then admin files, then others
             const sortedFiles = [...fileList].sort((a, b) => {
-                const aIsUtpal = a.name.toLowerCase().startsWith('utpal');
-                const bIsUtpal = b.name.toLowerCase().startsWith('utpal');
+                const aNameLower = a.name.toLowerCase();
+                const bNameLower = b.name.toLowerCase();
+                
+                const aIsUtpal = aNameLower.startsWith('utpal');
+                const bIsUtpal = bNameLower.startsWith('utpal');
+                const aIsAdmin = aNameLower.startsWith('admin');
+                const bIsAdmin = bNameLower.startsWith('admin');
+                
+                // Utpal files come first
                 if (aIsUtpal && !bIsUtpal) return -1;
                 if (!aIsUtpal && bIsUtpal) return 1;
+                
+                // Admin files come second
+                if (aIsAdmin && !bIsAdmin) return -1;
+                if (!aIsAdmin && bIsAdmin) return 1;
+                
                 return 0;
             });
 
             sortedFiles.forEach(file => {
                 const jsonData = file.data;
                 
-                Object.keys(jsonData).forEach(domain => {
-                    if (!merged.domains[domain]) {
-                        merged.domains[domain] = { users: [] };
+                // Handle both formats: direct domain objects or nested with "domains"
+                const domainsData = jsonData.domains || jsonData;
+                
+                Object.keys(domainsData).forEach(domain => {
+                    // Remove https://, http://, www. prefixes
+                    let cleanDomain = domain.replace(/^https?:\/\//i, '');
+                    cleanDomain = cleanDomain.replace(/^www\./i, '');
+                    
+                    if (!merged[cleanDomain]) {
+                        merged[cleanDomain] = { users: [] };
                     }
                     
-                    if (jsonData[domain].users) {
-                        merged.domains[domain].users.push(...jsonData[domain].users);
+                    if (domainsData[domain].users) {
+                        // Add users without duplicates
+                        domainsData[domain].users.forEach(user => {
+                            if (!merged[cleanDomain].users.some(u => 
+                                u[0] === user[0] && u[1] === user[1])) {
+                                merged[cleanDomain].users.push(user);
+                            }
+                        });
                     }
                 });
             });
@@ -287,17 +312,20 @@
 
         function displayResults() {
             // Update stats
-            const domainCount = Object.keys(mergedData.domains).length;
-            const userCount = Object.values(mergedData.domains)
+            const domainCount = Object.keys(mergedData).length;
+            const userCount = Object.values(mergedData)
                 .reduce((sum, domain) => sum + domain.users.length, 0);
 
             document.getElementById('domainCount').textContent = domainCount;
             document.getElementById('userCount').textContent = userCount;
             document.getElementById('stats').classList.remove('hidden');
 
+            // Wrap merged data in "domains" object
+            const outputData = { domains: mergedData };
+
             // Show preview
             document.getElementById('previewContent').textContent = 
-                JSON.stringify(mergedData, null, 2);
+                JSON.stringify(outputData, null, 2);
             document.getElementById('preview').classList.remove('hidden');
 
             // Show download button
@@ -313,12 +341,15 @@
         document.getElementById('downloadBtn').addEventListener('click', () => {
             if (!mergedData) return;
             
-            const blob = new Blob([JSON.stringify(mergedData, null, 2)], 
+            // Wrap merged data in "domains" object for download
+            const outputData = { domains: mergedData };
+            
+            const blob = new Blob([JSON.stringify(outputData, null, 2)], 
                 { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'merged_domains.json';
+            a.download = 'domains_data.json';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
